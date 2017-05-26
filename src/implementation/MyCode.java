@@ -21,7 +21,7 @@ public class MyCode extends x509.v3.CodeV3 {
 
     public MyCode(boolean[] algorithm_conf, boolean[] extensions_conf) throws GuiException {
         super(algorithm_conf, extensions_conf);
-        new Util();
+        new Util(access);
     }
 
     @Override
@@ -42,22 +42,22 @@ public class MyCode extends x509.v3.CodeV3 {
 
     @Override
     public boolean saveKeypair(String string) {
-        throw new UnsupportedOperationException("Not supported yet."); //To change body of generated methods, choose Tools | Templates.
+        return Util.saveKeyPair(string);
     }
 
     @Override
     public boolean removeKeypair(String string) {
-        throw new UnsupportedOperationException("Not supported yet."); //To change body of generated methods, choose Tools | Templates.
+        return Util.removeKeypair(string);
     }
 
     @Override
     public boolean importKeypair(String string, String string1, String string2) {
-        throw new UnsupportedOperationException("Not supported yet."); //To change body of generated methods, choose Tools | Templates.
+        return Util.importKeypair(string, string1, string2);
     }
 
     @Override
     public boolean exportKeypair(String string, String string1, String string2) {
-        throw new UnsupportedOperationException("Not supported yet."); //To change body of generated methods, choose Tools | Templates.
+        return Util.exportKeypair(string, string1, string2);
     }
 
     @Override
