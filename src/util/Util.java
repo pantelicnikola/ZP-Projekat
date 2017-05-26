@@ -48,8 +48,7 @@ import x509.v3.GuiV3;
  * @author Nikola
  */
 public class Util {
-
-    //private static KeyStoreUtil keyStore = null;
+    
     private static final String KEY_STORE_NAME = "keystore";
     private static final String KEY_STORE_PASS = "asd";
     private static KeyStore keyStore = null;
@@ -60,58 +59,45 @@ public class Util {
     
     
     public Util(GuiV3 access) {
-        try {
-            isInitialized = true;
-            Security.addProvider(new BouncyCastleProvider());
-            myAccess = access;
-            keyStore = KeyStore.getInstance("BKS", "BC");
-            keyStore.load(null, null);
-        } catch (KeyStoreException | NoSuchProviderException | IOException | NoSuchAlgorithmException | CertificateException ex) {
-            Logger.getLogger(Util.class.getName()).log(Level.SEVERE, null, ex);
-        }
+        isInitialized = true;
+        myAccess = access;
+        loadKeyStore();
     }
-
-//    public static KeyStoreUtil getKeyStore() {
-//        if (keyStore == null) {
-//            return new KeyStoreUtil();
-//        } else {
-//            return keyStore;
-//        }        
-//    }
     
     public static void loadKeyStore() { // sinhronizacija izmedju lokalnog keyStore <-- fajla
-        if (isInitialized)
-            try {
-                keyStore = null;
-                FileInputStream inputStream = new FileInputStream(KEY_STORE_NAME);
-                keyStore.load(inputStream, KEY_STORE_PASS.toCharArray());
-                inputStream.close();
-            } catch (FileNotFoundException ex) {
-                Logger.getLogger(Util.class.getName()).log(Level.SEVERE, null, ex);
-            } catch (IOException | NoSuchAlgorithmException | CertificateException ex) {
-                Logger.getLogger(Util.class.getName()).log(Level.SEVERE, null, ex);
-            }
+        
+        try {
+            Security.addProvider(new BouncyCastleProvider());
+            keyStore = KeyStore.getInstance("BKS", "BC");
+            keyStore.load(null, null);
+            FileInputStream inputStream = new FileInputStream(KEY_STORE_NAME);
+            keyStore.load(inputStream, KEY_STORE_PASS.toCharArray());
+            inputStream.close();
+        } catch (FileNotFoundException ex) {
+            Logger.getLogger(Util.class.getName()).log(Level.SEVERE, null, ex);
+        } catch (IOException | NoSuchAlgorithmException | CertificateException ex) {
+            Logger.getLogger(Util.class.getName()).log(Level.SEVERE, null, ex);
+        } catch (KeyStoreException | NoSuchProviderException ex) {
+            Logger.getLogger(Util.class.getName()).log(Level.SEVERE, null, ex);
+        }
     }
     
     public static void storeKeyStore() { // sinhronizacija izmedju lokalnog keyStore --> fajla
 
-        if(isInitialized)
-            try {
-                FileOutputStream outputStream = new FileOutputStream(KEY_STORE_NAME);
-                keyStore.store(outputStream, KEY_STORE_PASS.toCharArray());
-                outputStream.close();
-            } catch (FileNotFoundException ex) {
-                Logger.getLogger(Util.class.getName()).log(Level.SEVERE, null, ex);
-            } catch (KeyStoreException | NoSuchAlgorithmException | CertificateException | IOException ex) {
-                Logger.getLogger(Util.class.getName()).log(Level.SEVERE, null, ex);
-            }
+        try {
+            FileOutputStream outputStream = new FileOutputStream(KEY_STORE_NAME);
+            keyStore.store(outputStream, KEY_STORE_PASS.toCharArray());
+            outputStream.close();
+        } catch (FileNotFoundException ex) {
+            Logger.getLogger(Util.class.getName()).log(Level.SEVERE, null, ex);
+        } catch (KeyStoreException | NoSuchAlgorithmException | CertificateException | IOException ex) {
+            Logger.getLogger(Util.class.getName()).log(Level.SEVERE, null, ex);
+        }
     }
     
     public static void resetKeyStore() {
-        if (isInitialized) {
-            File file = new File(KEY_STORE_NAME);
-            file.delete();
-        } 
+        File file = new File(KEY_STORE_NAME);
+        file.delete();
     }
     
     public static int loadKeyPair(String keypair_name) {
@@ -124,23 +110,19 @@ public class Util {
     }
     
     public static boolean saveKeyPair(String keypair_name) {
-        if (isInitialized)
-            try {
-//                KeyPairGenerator kpg = KeyPairGenerator.getInstance("EC");
-//                System.out.println(myAccess.getPublicKeyECCurve());
-//                AlgorithmParameterSpec parameterSpec = new ECGenParameterSpec(myAccess.getPublicKeyECCurve());
-//                kpg.initialize(parameterSpec);
-                ECParameterSpec ecSpec = ECNamedCurveTable.getParameterSpec(myAccess.getPublicKeyECCurve());
-                KeyPairGenerator kpg = KeyPairGenerator.getInstance("ECDSA", "BC");
-                kpg.initialize(ecSpec, new SecureRandom());
-                KeyPair kp = kpg.generateKeyPair();
-                X509Certificate certificate = accessToCertificate(myAccess, kp);
-                Certificate certificates[] = {certificate};
-                keyStore.setKeyEntry(keypair_name, kp.getPrivate(), KEY_STORE_PASS.toCharArray(), certificates);
-                storeKeyStore();
-            } catch (NoSuchAlgorithmException | KeyStoreException | InvalidAlgorithmParameterException | NoSuchProviderException ex) {
-                Logger.getLogger(Util.class.getName()).log(Level.SEVERE, null, ex);
-            }
+
+        try {
+            ECParameterSpec ecSpec = ECNamedCurveTable.getParameterSpec(myAccess.getPublicKeyECCurve());
+            KeyPairGenerator kpg = KeyPairGenerator.getInstance("ECDSA", "BC");
+            kpg.initialize(ecSpec, new SecureRandom());
+            KeyPair kp = kpg.generateKeyPair();
+            X509Certificate certificate = accessToCertificate(myAccess, kp);
+            Certificate certificates[] = {certificate};
+            keyStore.setKeyEntry(keypair_name, kp.getPrivate(), KEY_STORE_PASS.toCharArray(), certificates);
+            storeKeyStore();
+        } catch (NoSuchAlgorithmException | KeyStoreException | InvalidAlgorithmParameterException | NoSuchProviderException ex) {
+            Logger.getLogger(Util.class.getName()).log(Level.SEVERE, null, ex);
+        }
         return true;
     }
     
@@ -205,14 +187,12 @@ public class Util {
     
     
     public static Enumeration<String> getKeyStoreAliases() {
-        if(isInitialized)
-            try {
-                return keyStore.aliases();
-            } catch (KeyStoreException ex) {
-                Logger.getLogger(Util.class.getName()).log(Level.SEVERE, null, ex);
-                return null; 
-           }
-        else return null;
+        try {
+            return keyStore.aliases();
+        } catch (KeyStoreException ex) {
+            Logger.getLogger(Util.class.getName()).log(Level.SEVERE, null, ex);
+            return null; 
+        }
     }
     
     public static X509Certificate accessToCertificate(GuiV3 access, KeyPair keyPair) {
