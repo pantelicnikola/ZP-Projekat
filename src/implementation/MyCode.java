@@ -62,7 +62,7 @@ public class MyCode extends x509.v3.CodeV3 {
 
     @Override
     public boolean signCertificate(String string, String string1) {
-        throw new UnsupportedOperationException("Not supported yet."); //To change body of generated methods, choose Tools | Templates.
+        return Util.signCertificate(string, string1);
     }
 
     @Override
