@@ -97,7 +97,7 @@ public class MyCode extends x509.v3.CodeV3 {
 
     @Override
     public boolean generateCSR(String string) {
-        throw new UnsupportedOperationException("Not supported yet."); //To change body of generated methods, choose Tools | Templates.
+        return Util.generateCSR(string);
     }
     
 }
