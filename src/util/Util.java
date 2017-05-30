@@ -17,14 +17,11 @@ import java.security.Key;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
 import java.security.KeyStore;
-import java.security.KeyStore.Entry;
-import java.security.KeyStore.PrivateKeyEntry;
 import java.security.KeyStoreException;
 import java.security.NoSuchAlgorithmException;
 import java.security.NoSuchProviderException;
 import java.security.Principal;
 import java.security.PrivateKey;
-import java.security.PublicKey;
 import java.security.SecureRandom;
 import java.security.Security;
 import java.security.SignatureException;
@@ -38,7 +35,11 @@ import java.util.Enumeration;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import java.util.Iterator;
+import java.util.List;
 import javax.security.auth.x500.X500Principal;
+import org.bouncycastle.asn1.ASN1Encodable;
+import org.bouncycastle.asn1.ASN1Sequence;
+import org.bouncycastle.asn1.x509.CertificatePolicies;
 import org.bouncycastle.jce.ECNamedCurveTable;
 import org.bouncycastle.jce.provider.BouncyCastleProvider;
 import org.bouncycastle.jce.spec.ECParameterSpec;
@@ -46,8 +47,10 @@ import org.bouncycastle.x509.X509V3CertificateGenerator;
 import org.bouncycastle.asn1.x509.GeneralName;
 import org.bouncycastle.asn1.x509.GeneralNames;
 import org.bouncycastle.asn1.x509.Extension;
+import org.bouncycastle.asn1.x509.Extensions;
 import org.bouncycastle.asn1.x509.PolicyInformation;
-import static org.bouncycastle.asn1.x509.X509Extensions.InhibitAnyPolicy;
+import org.bouncycastle.asn1.x509.X509Extension;
+import org.bouncycastle.asn1.x509.X509Extensions;
 import org.bouncycastle.jce.interfaces.ECPrivateKey;
 import org.bouncycastle.jce.interfaces.ECPublicKey;
 import sun.security.x509.InhibitAnyPolicyExtension;
@@ -65,13 +68,15 @@ public class Util {
     private static KeyStore keyStore;
     private static GuiV3 myAccess;
     private static String selectedKeyPair;
-
-    
-    
     
     public Util(GuiV3 access) {
-        myAccess = access;
-        loadKeyStore();
+        try {
+            myAccess = access;
+            keyStore.load(null,null);
+            loadKeyStore();
+        } catch (IOException | NoSuchAlgorithmException | CertificateException ex) {
+            Logger.getLogger(Util.class.getName()).log(Level.SEVERE, null, ex);
+        }
     }
     
     public static void loadKeyStore() { // sinhronizacija izmedju lokalnog keyStore <-- fajla
@@ -156,12 +161,13 @@ public class Util {
                 tmp.load(fileInputStream, password.toCharArray());
                 fileInputStream.close();
                 
-                X509Certificate certificate = findCertificate(tmp, keypair_name);
+                X509Certificate certificate = findCertificate(tmp, KEY_STORE_NAME);
                 Certificate certificates[] = {certificate};
-                Key key = tmp.getKey(keypair_name, password.toCharArray());
+                Key key = tmp.getKey(KEY_STORE_NAME, password.toCharArray());
             
                 keyStore.setKeyEntry(keypair_name, key, KEY_STORE_PASS.toCharArray(), certificates);
                 storeKeyStore();
+                loadKeyStore();
                 return true;
             }
             
@@ -176,17 +182,21 @@ public class Util {
     public static boolean exportKeypair(String keypair_name, String file, String password) {
                 
         try {
-            KeyStore ks = KeyStore.getInstance("pkcs12");
-            ks.load(null, null);
-            
-            //PrivateKeyEntry entry = (PrivateKeyEntry) keyStore.getEntry(keypair_name, new KeyStore.PasswordProtection(KEY_STORE_PASS.toCharArray()));
             Certificate certificates[] = {findCertificate(keyStore, keypair_name)};
-            PrivateKey pk = (PrivateKey) keyStore.getKey(keypair_name, password.toCharArray());
-            ks.setKeyEntry(KEY_STORE_NAME, pk, password.toCharArray(), certificates);
-           
-            FileOutputStream outputStream = new FileOutputStream(file+".p12");
-            ks.store(outputStream, password.toCharArray());
-            outputStream.close();
+            if (certificates != null) {
+                KeyStore ks = KeyStore.getInstance("pkcs12");
+                ks.load(null, null);
+
+                //PrivateKeyEntry entry = (PrivateKeyEntry) keyStore.getEntry(keypair_name, new KeyStore.PasswordProtection(KEY_STORE_PASS.toCharArray()));
+
+                PrivateKey pk = (PrivateKey) keyStore.getKey(keypair_name, password.toCharArray());
+                ks.setKeyEntry(KEY_STORE_NAME, pk, password.toCharArray(), certificates);
+
+                FileOutputStream outputStream = new FileOutputStream(file+".p12");
+                ks.store(outputStream, password.toCharArray());
+                outputStream.close();
+                return true;
+            }
             
         } catch (KeyStoreException | IOException | NoSuchAlgorithmException | CertificateException | UnrecoverableEntryException ex) {
             Logger.getLogger(Util.class.getName()).log(Level.SEVERE, null, ex);
@@ -209,7 +219,7 @@ public class Util {
                 sANs = new String[sANsCollection.size()];
                 int i = 0;
                 for (Iterator iterator = sANsCollection.iterator(); iterator.hasNext();) {
-                    
+                   
                 }
             }            
             
@@ -219,6 +229,13 @@ public class Util {
         return false;
     }
     
+    public static String getIssuer(String string) {
+        return null;
+    }
+    
+    public static List<String> getIssuers(String string) {
+        return (List<String>) getKeyStoreAliases();
+    }
     
     public static Enumeration<String> getKeyStoreAliases() {
         try {
@@ -235,32 +252,27 @@ public class Util {
             ECPrivateKey PR = (ECPrivateKey) keyPair.getPrivate();
             X509V3CertificateGenerator cg = new X509V3CertificateGenerator();
             X500Principal subjectPrincipal = new X500Principal(accesToDN(access));
-            Principal issuerDn = null;
+            X500Principal issuerPrincipal = new X500Principal(accesToDN(access)); // srediti
+            
             
             cg.setSerialNumber(new BigInteger(access.getSerialNumber()));
             cg.setNotBefore(access.getNotBefore());
             cg.setNotAfter(access.getNotAfter());
             cg.setSubjectDN(subjectPrincipal);
-            cg.setIssuerDN(new X500Principal("")); // srediti
+            cg.setIssuerDN(issuerPrincipal); // srediti
             cg.setPublicKey(PU);
             
             cg.setSignatureAlgorithm(access.getPublicKeySignatureAlgorithm());
             
-            //if (access.isCritical(2))
-            for (int i = 0 ; i<15 ; i++ ) {
-                if (access.isCritical(i)) System.out.println(i);
-            }
-            
-            if (access.getAnyPolicy()) {
-                GeneralName gn[] = new GeneralName[access.getAlternativeName(3).length];
-                int i = 0;
-                for (String name: access.getAlternativeName(3)) {
-                    gn[i] = new GeneralName(GeneralName.dNSName, name);
-                    i++;
-                }
-                GeneralNames gns = new GeneralNames(gn);
-                cg.addExtension(Extension.issuerAlternativeName, access.isCritical(3), gns);
-            }
+//            if (access.getAnyPolicy()) {
+//                final byte[] certificatePolicies = cert.getExtensionValue(X509Extension.certificatePolicies.getId());
+////                ASN1Sequence asnoi = getASN1S;
+////                
+////                PolicyInformation pi = new PolicyInformation(asnoi);
+////                PolicyInformation pis[] = {pi};
+////                CertificatePolicies cp = new CertificatePolicies(pis);
+////                cg.addExtension(Extension.issuerAlternativeName, access.isCritical(3), gns);
+//            }
             
             if (access.getAlternativeName(6).length > 0) {
                 GeneralName gn[] = new GeneralName[access.getAlternativeName(6).length];
@@ -276,20 +288,16 @@ public class Util {
             
             
             if (access.getInhibitAnyPolicy()) {
-                GeneralName gn[] = new GeneralName[access.getAlternativeName(13).length];
-                int i = 0;
-                for (String name: access.getAlternativeName(13)) {
-                    gn[i] = new GeneralName(GeneralName.dNSName, name);
-                    i++;
-                }
-                GeneralNames gns = new GeneralNames(gn);
-                cg.addExtension(Extension.issuerAlternativeName, access.isCritical(13), gns);
-            } // mozda fali ELSE
+                InhibitAnyPolicyExtension iape = new InhibitAnyPolicyExtension(new Integer(access.getSkipCerts()));
+                cg.addExtension(X509Extensions.InhibitAnyPolicy, true, iape.getExtensionValue());
+            }
             
             
             
             return cg.generateX509Certificate(PR, "BC");
         } catch (NoSuchProviderException | SecurityException | SignatureException | InvalidKeyException ex) {
+            Logger.getLogger(Util.class.getName()).log(Level.SEVERE, null, ex);
+        } catch (IOException ex) {
             Logger.getLogger(Util.class.getName()).log(Level.SEVERE, null, ex);
         }
         return null;
@@ -307,6 +315,9 @@ public class Util {
             return null;
         }        
     }
+    
+    
+    
     
     public static void certificateToAccess(GuiV3 access, X509Certificate certificate) {
         Principal subjectDN = certificate.getSubjectDN();

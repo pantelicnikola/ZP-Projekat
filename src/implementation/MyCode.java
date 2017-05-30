@@ -77,7 +77,7 @@ public class MyCode extends x509.v3.CodeV3 {
 
     @Override
     public String getIssuer(String string) {
-        throw new UnsupportedOperationException("Not supported yet."); //To change body of generated methods, choose Tools | Templates.
+        return Util.getIssuer(string);
     }
 
     @Override
@@ -92,7 +92,7 @@ public class MyCode extends x509.v3.CodeV3 {
 
     @Override
     public List<String> getIssuers(String string) {
-        throw new UnsupportedOperationException("Not supported yet."); //To change body of generated methods, choose Tools | Templates.
+        return Util.getIssuers(string);
     }
 
     @Override

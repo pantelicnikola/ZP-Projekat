@@ -1,4 +1,3 @@
 EC
-Certificate policies
 Issuer Alternative Name
 inhibit any policy
