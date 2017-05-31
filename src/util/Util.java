@@ -5,11 +5,13 @@
  */
 package util;
 
+import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.math.BigInteger;
 import java.security.InvalidAlgorithmParameterException;
 import java.security.InvalidKeyException;
@@ -31,40 +33,51 @@ import java.security.UnrecoverableEntryException;
 import java.security.UnrecoverableKeyException;
 import java.security.cert.Certificate;
 import java.security.cert.CertificateException;
+import java.security.cert.CertificateFactory;
 import java.security.cert.X509Certificate;
-import java.security.spec.EncodedKeySpec;
 import java.security.spec.InvalidKeySpecException;
 import java.security.spec.PKCS8EncodedKeySpec;
 import java.security.spec.X509EncodedKeySpec;
 
 import java.util.Collection;
+import java.util.Collections;
+import java.util.Date;
 import java.util.Enumeration;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import java.util.Iterator;
 import java.util.List;
 import javax.security.auth.x500.X500Principal;
-import org.bouncycastle.asn1.ASN1Encodable;
-import org.bouncycastle.asn1.ASN1Sequence;
-import org.bouncycastle.asn1.x509.CertificatePolicies;
+import org.bouncycastle.asn1.x500.X500Name;
+import org.bouncycastle.asn1.x509.AlgorithmIdentifier;
+import org.bouncycastle.asn1.x509.Extension;
+import org.bouncycastle.asn1.x509.GeneralName;
+import org.bouncycastle.asn1.x509.GeneralNames;
+import org.bouncycastle.asn1.x509.SubjectPublicKeyInfo;
+import org.bouncycastle.asn1.x509.X509CertificateStructure;
+import org.bouncycastle.asn1.x509.X509Extensions;
+import org.bouncycastle.cert.X509CertificateHolder;
 import org.bouncycastle.jce.ECNamedCurveTable;
 import org.bouncycastle.jce.provider.BouncyCastleProvider;
 import org.bouncycastle.jce.spec.ECParameterSpec;
 import org.bouncycastle.x509.X509V3CertificateGenerator;
-import org.bouncycastle.asn1.x509.GeneralName;
-import org.bouncycastle.asn1.x509.GeneralNames;
-import org.bouncycastle.asn1.x509.Extension;
-import org.bouncycastle.asn1.x509.Extensions;
-import org.bouncycastle.asn1.x509.PolicyInformation;
-import org.bouncycastle.asn1.x509.X509Extension;
-import org.bouncycastle.asn1.x509.X509Extensions;
 import org.bouncycastle.jce.PKCS10CertificationRequest;
-import org.bouncycastle.jce.interfaces.ECPrivateKey;
-import org.bouncycastle.jce.interfaces.ECPublicKey;
 import org.bouncycastle.util.encoders.Base64;
+import org.bouncycastle.cert.X509v3CertificateBuilder;
+import org.bouncycastle.crypto.params.AsymmetricKeyParameter;
+import org.bouncycastle.crypto.util.PrivateKeyFactory;
+import org.bouncycastle.operator.ContentSigner;
+import org.bouncycastle.operator.DefaultDigestAlgorithmIdentifierFinder;
+import org.bouncycastle.operator.DefaultSignatureAlgorithmIdentifierFinder;
+import org.bouncycastle.operator.OperatorCreationException;
+import org.bouncycastle.operator.bc.BcECContentSignerBuilder;
+import org.bouncycastle.operator.bc.BcRSAContentSignerBuilder;
+import sun.rmi.transport.proxy.CGIHandler;
 import sun.security.x509.InhibitAnyPolicyExtension;
+import sun.security.x509.PolicyInformation;
 import sun.security.x509.X509CertImpl;
 import x509.v3.GuiV3;
+
 
 /**
  *
@@ -77,6 +90,7 @@ public class Util {
     private static KeyStore keyStore;
     private static GuiV3 myAccess;
     private static String selectedKeyPair;
+    private static PKCS10CertificationRequest currentRequest;
     
     public Util(GuiV3 access) {
         try {
@@ -105,7 +119,6 @@ public class Util {
     }
     
     public static void storeKeyStore() { // sinhronizacija izmedju lokalnog keyStore --> fajla
-
         try {
             FileOutputStream outputStream = new FileOutputStream(KEY_STORE_NAME);
             keyStore.store(outputStream, KEY_STORE_PASS.toCharArray());
@@ -188,83 +201,83 @@ public class Util {
     }
     
     public static boolean exportKeypair(String keypair_name, String file, String password) {
-        
         try {
             Certificate certificates[] = {findCertificate(keyStore, keypair_name)};
             if (certificates != null) {
-                KeyStore ks = KeyStore.getInstance("pkcs12");
-                ks.load(null, null);
-
-                //PrivateKeyEntry entry = (PrivateKeyEntry) keyStore.getEntry(keypair_name, new KeyStore.PasswordProtection(KEY_STORE_PASS.toCharArray()));
+                KeyStore tmp = KeyStore.getInstance("pkcs12");
+                tmp.load(null, null);
 
                 PrivateKey pk = (PrivateKey) keyStore.getKey(keypair_name, KEY_STORE_PASS.toCharArray());
-                ks.setKeyEntry(KEY_STORE_NAME, pk, password.toCharArray(), certificates);
+                tmp.setKeyEntry(KEY_STORE_NAME, pk, password.toCharArray(), certificates);
 
                 FileOutputStream outputStream = new FileOutputStream(file+".p12");
-                ks.store(outputStream, password.toCharArray());
+                tmp.store(outputStream, password.toCharArray());
                 outputStream.close();
                 return true;
             }
-            
         } catch (KeyStoreException | IOException | NoSuchAlgorithmException | CertificateException | UnrecoverableEntryException ex) {
             Logger.getLogger(Util.class.getName()).log(Level.SEVERE, null, ex);
         }
         return false;
-                
-//        try {
-//            X509Certificate certificate = findCertificate(keyStore, keypair_name);
-//            Certificate certificates[] = {findCertificate(keyStore, keypair_name)};
-//            if (certificates != null) {
-//                KeyStore ks = KeyStore.getInstance("pkcs12");
-//                ks.load(null, null);    
-//                KeyStore.ProtectionParameter pp = new KeyStore.PasswordProtection(KEY_STORE_PASS.toCharArray());
-//                KeyStore.PrivateKeyEntry pke = (KeyStore.PrivateKeyEntry) keyStore.getEntry(keypair_name, pp);
-//                PrivateKey pk = (PrivateKey) pke.getPrivateKey();
-//                ks.setKeyEntry(KEY_STORE_NAME, pk, password.toCharArray(), certificates);
-//
-//                FileOutputStream outputStream = new FileOutputStream(file+".p12");
-//                ks.store(outputStream, password.toCharArray());
-//                outputStream.close();
-//                return true;
-//            }
-//            
-//        } catch (KeyStoreException | IOException | NoSuchAlgorithmException | CertificateException | UnrecoverableEntryException ex) {
-//            Logger.getLogger(Util.class.getName()).log(Level.SEVERE, null, ex);
-//        }
-//        return false;
     }
     
     public static boolean signCertificate(String issuer, String algorithm) {
         try {
-            KeyStore.Entry issuerEntry = keyStore.getEntry(issuer, new KeyStore.PasswordProtection(KEY_STORE_PASS.toCharArray()));
-            KeyStore.Entry subjectEntry = keyStore.getEntry(selectedKeyPair, new KeyStore.PasswordProtection(KEY_STORE_PASS.toCharArray()));
+            X509Certificate issuerCertificate = findCertificate(keyStore, issuer);
+            X509Certificate subjectCertificate = findCertificate(keyStore, selectedKeyPair);
             
-            X509Certificate issuerCertificate = (X509Certificate) keyStore.getCertificate(issuer);
-            X509Certificate subjeCertificate = (X509Certificate) keyStore.getCertificate(selectedKeyPair);
+            PrivateKey issuerPrivateKey = (PrivateKey) keyStore.getKey(issuer, KEY_STORE_PASS.toCharArray());
+            PrivateKey subjectPrivateKey = (PrivateKey) keyStore.getKey(selectedKeyPair, KEY_STORE_PASS.toCharArray());
             
-            X509CertImpl impl = new X509CertImpl(subjeCertificate.getEncoded());
-            Collection sANsCollection = impl.getSubjectAlternativeNames();
-            String sANs[];
-            if (sANsCollection != null) {
-                sANs = new String[sANsCollection.size()];
-                int i = 0;
-                for (Iterator iterator = sANsCollection.iterator(); iterator.hasNext();) {
-                   
-                }
-            }            
+            KeyPair kp = new KeyPair(subjectCertificate.getPublicKey(), subjectPrivateKey);
             
-        } catch (NoSuchAlgorithmException | UnrecoverableEntryException | KeyStoreException | CertificateException ex) {
+            X500Name issuerDN = new X500Name (issuerCertificate.getSubjectDN().toString());
+            BigInteger subjectSerialNumber = subjectCertificate.getSerialNumber();
+            Date subjectNotBefore = subjectCertificate.getNotBefore();
+            Date subejctNotAfter = subjectCertificate.getNotAfter();
+            X500Name csrSubject = currentRequest.getCertificationRequestInfo().getSubject();
+            SubjectPublicKeyInfo keyInfo = SubjectPublicKeyInfo.getInstance(kp.getPublic().getEncoded());
+            X509v3CertificateBuilder cb = new X509v3CertificateBuilder(issuerDN, subjectSerialNumber, subjectNotBefore, subejctNotAfter, csrSubject, keyInfo);
+            
+            AlgorithmIdentifier saId = new DefaultSignatureAlgorithmIdentifierFinder().find("SHA1withECDSA");
+            AlgorithmIdentifier daId = new DefaultDigestAlgorithmIdentifierFinder().find(saId);
+            
+            AsymmetricKeyParameter akp = PrivateKeyFactory.createKey(issuerPrivateKey.getEncoded());
+            ContentSigner cs = new BcECContentSignerBuilder(saId, daId).build(akp);
+            
+            // extensions
+            
+            X509CertificateHolder holder = cb.build(cs);
+            org.bouncycastle.asn1.x509.Certificate structure = holder.toASN1Structure();
+            
+            CertificateFactory cf = CertificateFactory.getInstance("X.509", "BC");
+            InputStream inputStream = new ByteArrayInputStream(structure.getEncoded());
+            X509Certificate certificate = (X509Certificate) cf.generateCertificate(inputStream);
+            Certificate[] certificates = {certificate};
+            inputStream.close(); 
+            
+            //keyStore.deleteEntry(selectedKeyPair);
+            keyStore.setKeyEntry(selectedKeyPair+"1", subjectPrivateKey, KEY_STORE_PASS.toCharArray(), certificates);
+            storeKeyStore();
+            return true;
+        } catch (CertificateException | KeyStoreException | NoSuchAlgorithmException | UnrecoverableKeyException | IOException | OperatorCreationException | NoSuchProviderException ex) {
             Logger.getLogger(Util.class.getName()).log(Level.SEVERE, null, ex);
         }
         return false;
     }
     
-    public static String getIssuer(String string) {
-        return null;
+    public static String getIssuer(String keypair_name) {
+        return findCertificate(keyStore, keypair_name).getIssuerDN().toString();
     }
     
-    public static List<String> getIssuers(String string) {
-        return (List<String>) getKeyStoreAliases();
+    public static List<String> getIssuers(String keypair_name) {
+        List<String> list = Collections.list(getKeyStoreAliases());
+        list.remove(keypair_name);
+        return list;
+    }
+    
+    public static String getIssuerPublicKeyAlgorithm(String keypair_name) {
+        return findCertificate(keyStore, keypair_name).getSigAlgName();
     }
     
     public static boolean generateCSR(String keypair_name) {
@@ -273,9 +286,11 @@ public class Util {
                 X509Certificate certificate = findCertificate(keyStore, keypair_name);
                 PublicKey pu = certificate.getPublicKey();
                 PrivateKey pr = (PrivateKey) keyStore.getKey(keypair_name, KEY_STORE_PASS.toCharArray());
-                PKCS10CertificationRequest request = new PKCS10CertificationRequest("SHA1withDSA", certificate.getSubjectX500Principal(), certificate.getPublicKey(), null, pr);
-                
-                String string = new String(Base64.encode(request.getEncoded()));
+                String algorithm = "SHA1withECDSA";
+//                if (certificate.getSigAlgName().compareTo("EC")) {
+//                    algorithm = certificate.getSigAlgName();
+//                }
+                currentRequest = new PKCS10CertificationRequest(algorithm, certificate.getSubjectX500Principal(), pu, null, pr);
                 return true;
             }
         } catch (KeyStoreException | NoSuchAlgorithmException | UnrecoverableKeyException | NoSuchProviderException | InvalidKeyException | SignatureException ex) {
@@ -295,16 +310,13 @@ public class Util {
     
     public static X509Certificate accessToCertificate(GuiV3 access, KeyPair keyPair) {
         try {
-//            KeyFactory fact = KeyFactory.getInstance("ECDSA", "BC");
-//            PublicKey PU = fact.generatePublic(new X509EncodedKeySpec(keyPair.getPublic().getEncoded()));
-//            PrivateKey PR = fact.generatePrivate(new PKCS8EncodedKeySpec(keyPair.getPrivate().getEncoded()));
-            PrivateKey PR = keyPair.getPrivate();
-            PublicKey PU = keyPair.getPublic();
+            KeyFactory fact = KeyFactory.getInstance("ECDSA", "BC");
+            PublicKey PU = fact.generatePublic(new X509EncodedKeySpec(keyPair.getPublic().getEncoded()));
+            PrivateKey PR = fact.generatePrivate(new PKCS8EncodedKeySpec(keyPair.getPrivate().getEncoded()));
             
             X509V3CertificateGenerator cg = new X509V3CertificateGenerator();
             X500Principal subjectPrincipal = new X500Principal(accesToDN(access));
             X500Principal issuerPrincipal = new X500Principal(accesToDN(access)); // srediti
-            
             
             cg.setSerialNumber(new BigInteger(access.getSerialNumber()));
             cg.setNotBefore(access.getNotBefore());
@@ -317,36 +329,36 @@ public class Util {
             
 //            if (access.getAnyPolicy()) {
 //                final byte[] certificatePolicies = cert.getExtensionValue(X509Extension.certificatePolicies.getId());
-////                ASN1Sequence asnoi = getASN1S;
-////                
-////                PolicyInformation pi = new PolicyInformation(asnoi);
-////                PolicyInformation pis[] = {pi};
-////                CertificatePolicies cp = new CertificatePolicies(pis);
-////                cg.addExtension(Extension.issuerAlternativeName, access.isCritical(3), gns);
+//                ASN1Sequence asnoi = getASN1S;
+//                
+//                PolicyInformation pi = new PolicyInformation(asnoi);
+//                PolicyInformation pis[] = {pi};
+//                CertificatePolicies cp = new CertificatePolicies(pis);
+//                cg.addExtension(Extension.issuerAlternativeName, access.isCritical(3), gns);
 //            }
             
-//            if (access.getAlternativeName(6).length > 0) {
-//                GeneralName gn[] = new GeneralName[access.getAlternativeName(6).length];
-//                int i = 0;
-//                for (String name: access.getAlternativeName(6)) {
-//                    gn[i] = new GeneralName(GeneralName.dNSName, name);
-//                    i++;
-//                }
-//                GeneralNames gns = new GeneralNames(gn);
-//                cg.addExtension(Extension.issuerAlternativeName, access.isCritical(6), gns);
-//                
-//            }
-//            
-//            
-//            if (access.getInhibitAnyPolicy()) {
-//                InhibitAnyPolicyExtension iape = new InhibitAnyPolicyExtension(new Integer(access.getSkipCerts()));
-//                cg.addExtension(X509Extensions.InhibitAnyPolicy, true, iape.getExtensionValue());
-//            }
+            if (access.getAlternativeName(6).length > 0) {
+                GeneralName gn[] = new GeneralName[access.getAlternativeName(6).length];
+                int i = 0;
+                for (String name: access.getAlternativeName(6)) {
+                    gn[i] = new GeneralName(GeneralName.dNSName, name);
+                    i++;
+                }
+                GeneralNames gns = new GeneralNames(gn);
+                cg.addExtension(Extension.issuerAlternativeName, access.isCritical(6), gns);
+                
+            }
+            
+            
+            if (access.getInhibitAnyPolicy()) {
+                InhibitAnyPolicyExtension iape = new InhibitAnyPolicyExtension(new Integer(access.getSkipCerts()));
+                cg.addExtension(X509Extensions.InhibitAnyPolicy, true, iape.getExtensionValue());
+            }
             
             
             
             return cg.generateX509Certificate(PR, "BC");
-        } catch (NoSuchProviderException | SecurityException | SignatureException | InvalidKeyException ex) {
+        } catch (NoSuchProviderException | SecurityException | SignatureException | InvalidKeyException | NoSuchAlgorithmException | InvalidKeySpecException | IOException ex) {
             Logger.getLogger(Util.class.getName()).log(Level.SEVERE, null, ex);
         }
         return null;
@@ -365,23 +377,17 @@ public class Util {
         }        
     }
     
-    
-    
-    
     public static void certificateToAccess(GuiV3 access, X509Certificate certificate) {
         Principal subjectDN = certificate.getSubjectDN();
         Principal issuerDN = certificate.getIssuerDN();
         
         access.setSubject(subjectDN.toString());
-        access.setIssuer(subjectDN.toString()); // ispraviti
-        
+        access.setIssuer(issuerDN.toString()); // ispraviti
         access.setVersion((certificate.getVersion())==3?2:1);
         access.setSerialNumber(certificate.getSerialNumber().toString());
         access.setNotBefore(certificate.getNotBefore());
         access.setNotAfter(certificate.getNotAfter());
         access.setIssuerSignatureAlgorithm(certificate.getSigAlgName());
-        
-        
     }
     
     public static String accesToDN(GuiV3 access) {
@@ -393,7 +399,5 @@ public class Util {
                     ",OU="+access.getSubjectOrganizationUnit()+
                     ",CN="+access.getSubjectCommonName();
         return null;
-        
     }
-    
 }

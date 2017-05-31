@@ -82,7 +82,7 @@ public class MyCode extends x509.v3.CodeV3 {
 
     @Override
     public String getIssuerPublicKeyAlgorithm(String string) {
-        throw new UnsupportedOperationException("Not supported yet."); //To change body of generated methods, choose Tools | Templates.
+        return Util.getIssuerPublicKeyAlgorithm(string);
     }
 
     @Override
