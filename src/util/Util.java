@@ -34,11 +34,11 @@ import java.security.UnrecoverableKeyException;
 import java.security.cert.Certificate;
 import java.security.cert.CertificateException;
 import java.security.cert.CertificateFactory;
+import java.security.cert.CertificateParsingException;
 import java.security.cert.X509Certificate;
 import java.security.spec.InvalidKeySpecException;
 import java.security.spec.PKCS8EncodedKeySpec;
 import java.security.spec.X509EncodedKeySpec;
-
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Date;
@@ -47,14 +47,16 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Set;
 import javax.security.auth.x500.X500Principal;
+import org.bouncycastle.asn1.ASN1InputStream;
+import org.bouncycastle.asn1.DEROctetString;
 import org.bouncycastle.asn1.x500.X500Name;
 import org.bouncycastle.asn1.x509.AlgorithmIdentifier;
 import org.bouncycastle.asn1.x509.Extension;
 import org.bouncycastle.asn1.x509.GeneralName;
 import org.bouncycastle.asn1.x509.GeneralNames;
 import org.bouncycastle.asn1.x509.SubjectPublicKeyInfo;
-import org.bouncycastle.asn1.x509.X509CertificateStructure;
 import org.bouncycastle.asn1.x509.X509Extensions;
 import org.bouncycastle.cert.X509CertificateHolder;
 import org.bouncycastle.jce.ECNamedCurveTable;
@@ -62,7 +64,6 @@ import org.bouncycastle.jce.provider.BouncyCastleProvider;
 import org.bouncycastle.jce.spec.ECParameterSpec;
 import org.bouncycastle.x509.X509V3CertificateGenerator;
 import org.bouncycastle.jce.PKCS10CertificationRequest;
-import org.bouncycastle.util.encoders.Base64;
 import org.bouncycastle.cert.X509v3CertificateBuilder;
 import org.bouncycastle.crypto.params.AsymmetricKeyParameter;
 import org.bouncycastle.crypto.util.PrivateKeyFactory;
@@ -71,11 +72,7 @@ import org.bouncycastle.operator.DefaultDigestAlgorithmIdentifierFinder;
 import org.bouncycastle.operator.DefaultSignatureAlgorithmIdentifierFinder;
 import org.bouncycastle.operator.OperatorCreationException;
 import org.bouncycastle.operator.bc.BcECContentSignerBuilder;
-import org.bouncycastle.operator.bc.BcRSAContentSignerBuilder;
-import sun.rmi.transport.proxy.CGIHandler;
 import sun.security.x509.InhibitAnyPolicyExtension;
-import sun.security.x509.PolicyInformation;
-import sun.security.x509.X509CertImpl;
 import x509.v3.GuiV3;
 
 
@@ -239,13 +236,51 @@ public class Util {
             SubjectPublicKeyInfo keyInfo = SubjectPublicKeyInfo.getInstance(kp.getPublic().getEncoded());
             X509v3CertificateBuilder cb = new X509v3CertificateBuilder(issuerDN, subjectSerialNumber, subjectNotBefore, subejctNotAfter, csrSubject, keyInfo);
             
-            AlgorithmIdentifier saId = new DefaultSignatureAlgorithmIdentifierFinder().find("SHA1withECDSA");
+            //extensions
+            
+            boolean issuerAlternativeNameCritical = false;
+            boolean certificatePoliciesCritical = false;
+            boolean inhibitAnyPolicyCritical = false;
+            
+            Set<String> criticals = subjectCertificate.getCriticalExtensionOIDs();
+            for (String ext : criticals) {
+                if (ext.equals(Extension.certificatePolicies.toString()))
+                    certificatePoliciesCritical = true;
+                else if (ext.equals(Extension.issuerAlternativeName.toString()))
+                    issuerAlternativeNameCritical = true;
+                else if (ext.equals(Extension.inhibitAnyPolicy.toString()))
+                    inhibitAnyPolicyCritical = true;
+            }
+            
+            Collection names = subjectCertificate.getIssuerAlternativeNames();
+            int i = 0;
+            GeneralName gn[] = new GeneralName[names.size()];
+            for (Iterator it = names.iterator(); it.hasNext();) {
+                List<Object> name = (List<Object>) it.next();
+                gn[i] = new GeneralName(GeneralName.dNSName, name.toString());
+                i++;
+            }
+            GeneralNames gns = new GeneralNames(gn);
+            cb.addExtension(Extension.issuerAlternativeName, issuerAlternativeNameCritical, gns);
+            
+            byte[] extensionValue = subjectCertificate.getExtensionValue(Extension.inhibitAnyPolicy.toString());
+            if (extensionValue != null) {
+              Object obj = new ASN1InputStream(extensionValue).readObject();
+              extensionValue = ((DEROctetString) obj).getOctets();
+              obj = new ASN1InputStream(extensionValue).readObject();
+              InhibitAnyPolicyExtension extension = new InhibitAnyPolicyExtension(new Integer(obj.toString()));
+              cb.addExtension(X509Extensions.InhibitAnyPolicy, inhibitAnyPolicyCritical, extension.getExtensionValue());
+            }
+            
+            
+
+            //
+            
+            AlgorithmIdentifier saId = new DefaultSignatureAlgorithmIdentifierFinder().find("SHA1withECDSA"); // srediti
             AlgorithmIdentifier daId = new DefaultDigestAlgorithmIdentifierFinder().find(saId);
             
             AsymmetricKeyParameter akp = PrivateKeyFactory.createKey(issuerPrivateKey.getEncoded());
             ContentSigner cs = new BcECContentSignerBuilder(saId, daId).build(akp);
-            
-            // extensions
             
             X509CertificateHolder holder = cb.build(cs);
             org.bouncycastle.asn1.x509.Certificate structure = holder.toASN1Structure();
@@ -256,8 +291,8 @@ public class Util {
             Certificate[] certificates = {certificate};
             inputStream.close(); 
             
-            //keyStore.deleteEntry(selectedKeyPair);
-            keyStore.setKeyEntry(selectedKeyPair+"1", subjectPrivateKey, KEY_STORE_PASS.toCharArray(), certificates);
+            keyStore.deleteEntry(selectedKeyPair);
+            keyStore.setKeyEntry(selectedKeyPair, subjectPrivateKey, KEY_STORE_PASS.toCharArray(), certificates);
             storeKeyStore();
             return true;
         } catch (CertificateException | KeyStoreException | NoSuchAlgorithmException | UnrecoverableKeyException | IOException | OperatorCreationException | NoSuchProviderException ex) {
@@ -286,7 +321,7 @@ public class Util {
                 X509Certificate certificate = findCertificate(keyStore, keypair_name);
                 PublicKey pu = certificate.getPublicKey();
                 PrivateKey pr = (PrivateKey) keyStore.getKey(keypair_name, KEY_STORE_PASS.toCharArray());
-                String algorithm = "SHA1withECDSA";
+                String algorithm = "SHA1withECDSA"; // srediti
 //                if (certificate.getSigAlgName().compareTo("EC")) {
 //                    algorithm = certificate.getSigAlgName();
 //                }
@@ -352,7 +387,7 @@ public class Util {
             
             if (access.getInhibitAnyPolicy()) {
                 InhibitAnyPolicyExtension iape = new InhibitAnyPolicyExtension(new Integer(access.getSkipCerts()));
-                cg.addExtension(X509Extensions.InhibitAnyPolicy, true, iape.getExtensionValue());
+                cg.addExtension(X509Extensions.InhibitAnyPolicy, access.isCritical(13), iape.getExtensionValue());
             }
             
             
@@ -378,16 +413,58 @@ public class Util {
     }
     
     public static void certificateToAccess(GuiV3 access, X509Certificate certificate) {
-        Principal subjectDN = certificate.getSubjectDN();
-        Principal issuerDN = certificate.getIssuerDN();
+        try {
+            Principal subjectDN = certificate.getSubjectDN();
+            Principal issuerDN = certificate.getIssuerDN();
+            
+            access.setSubject(subjectDN.toString());
+            access.setIssuer(issuerDN.toString());
+            access.setVersion((certificate.getVersion())==3?2:1);
+            access.setSerialNumber(certificate.getSerialNumber().toString());
+            access.setNotBefore(certificate.getNotBefore());
+            access.setNotAfter(certificate.getNotAfter());
+            access.setIssuerSignatureAlgorithm(certificate.getSigAlgName());
+
+            Collection names = certificate.getIssuerAlternativeNames();
+            if (names != null) {
+                String alternativeNames = "";
+                for (Iterator it = names.iterator(); it.hasNext();) {
+                    List<Object> name = (List<Object>) it.next();
+                    if (it.hasNext())
+                        alternativeNames += name.get(1) + ",";
+                    else
+                        alternativeNames += name.get(1);
+                }
+                access.setAlternativeName(6, alternativeNames);  
+            }
+            
+            byte[] extensionValue = certificate.getExtensionValue(Extension.inhibitAnyPolicy.toString());
+            if (extensionValue != null) {
+                Object obj = new ASN1InputStream(extensionValue).readObject();
+                extensionValue = ((DEROctetString) obj).getOctets();
+                obj = new ASN1InputStream(extensionValue).readObject();
+                access.setInhibitAnyPolicy(true);
+                access.setSkipCerts(obj.toString());
+            }
+            
+            Set<String> criticals = certificate.getCriticalExtensionOIDs();
+            if (criticals != null) {
+                for (String ext : criticals) {
+                    if (ext.equals(Extension.certificatePolicies.toString()))
+                        access.setCritical(3, true);
+                    else if (ext.equals(Extension.issuerAlternativeName.toString()))
+                        access.setCritical(6, true);
+                    else if (ext.equals(Extension.inhibitAnyPolicy.toString()))
+                        access.setCritical(13, true);
+                }
+            }
+            
+        } catch (CertificateParsingException ex) {
+            Logger.getLogger(Util.class.getName()).log(Level.SEVERE, null, ex);
+        } catch (IOException ex) {
+            Logger.getLogger(Util.class.getName()).log(Level.SEVERE, null, ex);
+        }
         
-        access.setSubject(subjectDN.toString());
-        access.setIssuer(issuerDN.toString()); // ispraviti
-        access.setVersion((certificate.getVersion())==3?2:1);
-        access.setSerialNumber(certificate.getSerialNumber().toString());
-        access.setNotBefore(certificate.getNotBefore());
-        access.setNotAfter(certificate.getNotAfter());
-        access.setIssuerSignatureAlgorithm(certificate.getSigAlgName());
     }
     
     public static String accesToDN(GuiV3 access) {
