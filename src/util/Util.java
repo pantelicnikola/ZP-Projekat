@@ -71,7 +71,9 @@ import org.bouncycastle.operator.ContentSigner;
 import org.bouncycastle.operator.DefaultDigestAlgorithmIdentifierFinder;
 import org.bouncycastle.operator.DefaultSignatureAlgorithmIdentifierFinder;
 import org.bouncycastle.operator.OperatorCreationException;
+import org.bouncycastle.operator.bc.BcDSAContentSignerBuilder;
 import org.bouncycastle.operator.bc.BcECContentSignerBuilder;
+import org.bouncycastle.operator.bc.BcRSAContentSignerBuilder;
 import sun.security.x509.InhibitAnyPolicyExtension;
 import x509.v3.GuiV3;
 
@@ -84,10 +86,13 @@ public class Util {
     
     private static final String KEY_STORE_NAME = "keystore";
     private static final String KEY_STORE_PASS = "asd";
+    private static final String TEST_FILE_NAME = "ETFrootCA";
     private static KeyStore keyStore;
     private static GuiV3 myAccess;
     private static String selectedKeyPair;
     private static PKCS10CertificationRequest currentRequest;
+
+    
     
     public Util(GuiV3 access) {
         try {
@@ -144,18 +149,21 @@ public class Util {
     
     public static boolean saveKeyPair(String keypair_name) {
         try {
-            ECParameterSpec ecSpec = ECNamedCurveTable.getParameterSpec(myAccess.getPublicKeyECCurve());
-            KeyPairGenerator kpg = KeyPairGenerator.getInstance("ECDSA", "BC");
-            kpg.initialize(ecSpec, new SecureRandom());
-            KeyPair kp = kpg.generateKeyPair();
-            X509Certificate certificate = accessToCertificate(myAccess, kp);
-            Certificate certificates[] = {certificate};
-            keyStore.setKeyEntry(keypair_name, kp.getPrivate(), KEY_STORE_PASS.toCharArray(), certificates);
-            storeKeyStore();
+            if (!keyStore.containsAlias(keypair_name)) {
+                ECParameterSpec ecSpec = ECNamedCurveTable.getParameterSpec(myAccess.getPublicKeyECCurve());
+                KeyPairGenerator kpg = KeyPairGenerator.getInstance("ECDSA", "BC");
+                kpg.initialize(ecSpec, new SecureRandom());
+                KeyPair kp = kpg.generateKeyPair();
+                X509Certificate certificate = accessToCertificate(myAccess, kp);
+                Certificate certificates[] = {certificate};
+                keyStore.setKeyEntry(keypair_name, kp.getPrivate(), KEY_STORE_PASS.toCharArray(), certificates);
+                storeKeyStore();
+                return true;
+            }
         } catch (NoSuchAlgorithmException | KeyStoreException | InvalidAlgorithmParameterException | NoSuchProviderException ex) {
             Logger.getLogger(Util.class.getName()).log(Level.SEVERE, null, ex);
         }
-        return true;
+        return false;
     }
     
     public static boolean removeKeypair(String keypair_name) {
@@ -180,8 +188,14 @@ public class Util {
                 fileInputStream.close();
                 
                 X509Certificate certificate = findCertificate(tmp, KEY_STORE_NAME);
+                if (certificate == null) {
+                    certificate = findCertificate(tmp, TEST_FILE_NAME);
+                }
                 Certificate certificates[] = {certificate};
                 Key key = tmp.getKey(KEY_STORE_NAME, password.toCharArray());
+                if (key == null) {
+                    key = tmp.getKey(TEST_FILE_NAME, password.toCharArray());
+                }
             
                 keyStore.setKeyEntry(keypair_name, key, KEY_STORE_PASS.toCharArray(), certificates);
                 storeKeyStore();
@@ -229,12 +243,13 @@ public class Util {
             KeyPair kp = new KeyPair(subjectCertificate.getPublicKey(), subjectPrivateKey);
             
             X500Name issuerDN = new X500Name (issuerCertificate.getSubjectDN().toString());
+            X500Name subjectDN = currentRequest.getCertificationRequestInfo().getSubject();
             BigInteger subjectSerialNumber = subjectCertificate.getSerialNumber();
             Date subjectNotBefore = subjectCertificate.getNotBefore();
             Date subejctNotAfter = subjectCertificate.getNotAfter();
-            X500Name csrSubject = currentRequest.getCertificationRequestInfo().getSubject();
+            
             SubjectPublicKeyInfo keyInfo = SubjectPublicKeyInfo.getInstance(kp.getPublic().getEncoded());
-            X509v3CertificateBuilder cb = new X509v3CertificateBuilder(issuerDN, subjectSerialNumber, subjectNotBefore, subejctNotAfter, csrSubject, keyInfo);
+            X509v3CertificateBuilder cb = new X509v3CertificateBuilder(issuerDN, subjectSerialNumber, subjectNotBefore, subejctNotAfter, subjectDN, keyInfo);
             
             //extensions
             
@@ -243,25 +258,28 @@ public class Util {
             boolean inhibitAnyPolicyCritical = false;
             
             Set<String> criticals = subjectCertificate.getCriticalExtensionOIDs();
-            for (String ext : criticals) {
-                if (ext.equals(Extension.certificatePolicies.toString()))
-                    certificatePoliciesCritical = true;
-                else if (ext.equals(Extension.issuerAlternativeName.toString()))
-                    issuerAlternativeNameCritical = true;
-                else if (ext.equals(Extension.inhibitAnyPolicy.toString()))
-                    inhibitAnyPolicyCritical = true;
-            }
+            if (criticals != null) 
+                for (String ext : criticals) {
+                    if (ext.equals(Extension.certificatePolicies.toString()))
+                        certificatePoliciesCritical = true;
+                    else if (ext.equals(Extension.issuerAlternativeName.toString()))
+                        issuerAlternativeNameCritical = true;
+                    else if (ext.equals(Extension.inhibitAnyPolicy.toString()))
+                        inhibitAnyPolicyCritical = true;
+                }
             
             Collection names = subjectCertificate.getIssuerAlternativeNames();
             int i = 0;
-            GeneralName gn[] = new GeneralName[names.size()];
-            for (Iterator it = names.iterator(); it.hasNext();) {
-                List<Object> name = (List<Object>) it.next();
-                gn[i] = new GeneralName(GeneralName.dNSName, name.toString());
-                i++;
+            if (names != null) {
+                GeneralName gn[] = new GeneralName[names.size()];
+                for (Iterator it = names.iterator(); it.hasNext();) {
+                    List<Object> name = (List<Object>) it.next();
+                    gn[i] = new GeneralName(GeneralName.dNSName, name.toString());
+                    i++;
+                }
+                GeneralNames gns = new GeneralNames(gn);
+                cb.addExtension(Extension.issuerAlternativeName, issuerAlternativeNameCritical, gns);
             }
-            GeneralNames gns = new GeneralNames(gn);
-            cb.addExtension(Extension.issuerAlternativeName, issuerAlternativeNameCritical, gns);
             
             byte[] extensionValue = subjectCertificate.getExtensionValue(Extension.inhibitAnyPolicy.toString());
             if (extensionValue != null) {
@@ -275,13 +293,25 @@ public class Util {
             
 
             //
-            
-            AlgorithmIdentifier saId = new DefaultSignatureAlgorithmIdentifierFinder().find("SHA1withECDSA"); // srediti
+            String issuerSigAlgName = issuerCertificate.getPublicKey().getAlgorithm();
+            if (issuerSigAlgName.compareTo("EC") == 0) {
+                issuerSigAlgName = "SHA1withECDSA";
+            } else {
+                issuerSigAlgName = issuerCertificate.getSigAlgName();
+            }
+            AlgorithmIdentifier saId = new DefaultSignatureAlgorithmIdentifierFinder().find(issuerSigAlgName); // srediti
             AlgorithmIdentifier daId = new DefaultDigestAlgorithmIdentifierFinder().find(saId);
             
             AsymmetricKeyParameter akp = PrivateKeyFactory.createKey(issuerPrivateKey.getEncoded());
-            ContentSigner cs = new BcECContentSignerBuilder(saId, daId).build(akp);
-            
+            ContentSigner cs;
+            if (issuerCertificate.getPublicKey().getAlgorithm().contains("EC"))    
+                cs = new BcECContentSignerBuilder(saId, daId).build(akp);
+            else if (issuerCertificate.getPublicKey().getAlgorithm().contains("RSA"))
+                cs = new BcRSAContentSignerBuilder(saId, daId).build(akp);
+            else if (issuerCertificate.getPublicKey().getAlgorithm().contains("DSA"))
+                cs = new BcDSAContentSignerBuilder(saId, daId).build(akp);
+            else 
+                cs = null;
             X509CertificateHolder holder = cb.build(cs);
             org.bouncycastle.asn1.x509.Certificate structure = holder.toASN1Structure();
             
@@ -298,6 +328,52 @@ public class Util {
         } catch (CertificateException | KeyStoreException | NoSuchAlgorithmException | UnrecoverableKeyException | IOException | OperatorCreationException | NoSuchProviderException ex) {
             Logger.getLogger(Util.class.getName()).log(Level.SEVERE, null, ex);
         }
+        return false;
+    }
+    
+    public static boolean importCertificate(File file, String keypair_name) {
+//        try{
+//            Path path = Paths.get(file.getAbsolutePath());
+//            byte[] data = Files.readAllBytes(path);
+//            ByteArrayInputStream stream = new ByteArrayInputStream(data);
+//
+//            X509Certificate certificate = (X509Certificate) CertificateFactory.getInstance("X.509").generateCertificate(stream);
+//            Certificate certificates[] = {certificate};
+//            KeyPairGenerator keyGen = KeyPairGenerator.getInstance("EC");
+//            keyStore.setKeyEntry(keypair_name, keyGen.genKeyPair().getPrivate(), KEY_STORE_PASS.toCharArray(), certificates);
+//            storeKeyStore();
+//            loadKeyStore();
+//            return true;
+//        } catch (IOException | CertificateException | NoSuchAlgorithmException | KeyStoreException ex) {
+//            Logger.getLogger(Util.class.getName()).log(Level.SEVERE, null, ex);
+//        }
+        return false;
+    }
+    
+    public static boolean exportCertificate(File file, int encoding) {
+//        X509Certificate certificate = findCertificate(keyStore, selectedKeyPair);
+//        File newFile = new File(file.getAbsolutePath()+".cer");
+//        try {
+//            if (encoding == 1) {
+//                Writer writer = new FileWriter(newFile);
+//                PemWriter pemWriter = new PemWriter(writer);
+//                PemObject pemObject = new PemObject(certificate.getType(), certificate.getEncoded());
+//                pemWriter.writeObject(pemObject);
+//                pemWriter.flush();
+//                pemWriter.close();
+//            } else {
+//                FileOutputStream outputStream = new FileOutputStream(newFile);
+//                DEROutputStream dos = new DEROutputStream(outputStream);
+//                ASN1InputStream inputStream = new ASN1InputStream(new ByteArrayInputStream(certificate.getEncoded()));
+//
+//                dos.writeObject(inputStream.readObject());
+//                dos.flush();
+//                dos.close();
+//            }
+//            return true;
+//        } catch (IOException | CertificateEncodingException ex) {
+//            Logger.getLogger(Util.class.getName()).log(Level.SEVERE, null, ex);
+//        }
         return false;
     }
     
@@ -350,8 +426,8 @@ public class Util {
             PrivateKey PR = fact.generatePrivate(new PKCS8EncodedKeySpec(keyPair.getPrivate().getEncoded()));
             
             X509V3CertificateGenerator cg = new X509V3CertificateGenerator();
-            X500Principal subjectPrincipal = new X500Principal(accesToDN(access));
-            X500Principal issuerPrincipal = new X500Principal(accesToDN(access)); // srediti
+            X500Principal subjectPrincipal = new X500Principal(accessToDN(access));
+            X500Principal issuerPrincipal = new X500Principal(accessToDN(access)); // srediti
             
             cg.setSerialNumber(new BigInteger(access.getSerialNumber()));
             cg.setNotBefore(access.getNotBefore());
@@ -401,10 +477,12 @@ public class Util {
     
     public static X509Certificate findCertificate(KeyStore keyStore, String keypair_name) {
         try {
-            X509Certificate certificate = (X509Certificate) keyStore.getCertificateChain(keypair_name)[0];
-            if (certificate == null) {
-                certificate = (X509Certificate) keyStore.getCertificate(keypair_name);
-            }
+//            X509Certificate certificate = (X509Certificate) keyStore.getCertificateChain(keypair_name)[0];
+//            if (certificate == null) {
+//                certificate = (X509Certificate) keyStore.getCertificate(keypair_name);
+//            }
+//            return certificate;
+            X509Certificate certificate = (X509Certificate) keyStore.getCertificate(keypair_name);
             return certificate;
         } catch (KeyStoreException ex) {
             Logger.getLogger(Util.class.getName()).log(Level.SEVERE, null, ex);
@@ -449,25 +527,22 @@ public class Util {
             
             Set<String> criticals = certificate.getCriticalExtensionOIDs();
             if (criticals != null) {
-                for (String ext : criticals) {
+                criticals.stream().forEach((ext) -> {
                     if (ext.equals(Extension.certificatePolicies.toString()))
                         access.setCritical(3, true);
                     else if (ext.equals(Extension.issuerAlternativeName.toString()))
                         access.setCritical(6, true);
                     else if (ext.equals(Extension.inhibitAnyPolicy.toString()))
                         access.setCritical(13, true);
-                }
+                });
             }
-            
-        } catch (CertificateParsingException ex) {
-            Logger.getLogger(Util.class.getName()).log(Level.SEVERE, null, ex);
-        } catch (IOException ex) {
+        } catch (CertificateParsingException | IOException ex) {
             Logger.getLogger(Util.class.getName()).log(Level.SEVERE, null, ex);
         }
         
     }
     
-    public static String accesToDN(GuiV3 access) {
+    public static String accessToDN(GuiV3 access) {
         if (access != null)
             return  "C="+access.getSubjectCountry()+
                     ",ST="+access.getSubjectState()+
@@ -475,6 +550,7 @@ public class Util {
                     ",O="+access.getSubjectOrganization()+
                     ",OU="+access.getSubjectOrganizationUnit()+
                     ",CN="+access.getSubjectCommonName();
+    
         return null;
     }
 }

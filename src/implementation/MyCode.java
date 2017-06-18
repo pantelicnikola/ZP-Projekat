@@ -67,12 +67,12 @@ public class MyCode extends x509.v3.CodeV3 {
 
     @Override
     public boolean importCertificate(File file, String string) {
-        throw new UnsupportedOperationException("Not supported yet."); //To change body of generated methods, choose Tools | Templates.
+        return Util.importCertificate(file, string);
     }
 
     @Override
     public boolean exportCertificate(File file, int i) {
-        throw new UnsupportedOperationException("Not supported yet."); //To change body of generated methods, choose Tools | Templates.
+        return Util.exportCertificate(file, i);
     }
 
     @Override
